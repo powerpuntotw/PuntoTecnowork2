@@ -19,7 +19,7 @@ export default function AdminDashboardPage() {
         const fetchAll = async () => {
             try {
                 const [usersRes, recentOrdersRes, locsRes, pointsRes, totalOrdersRes] = await Promise.all([
-                    supabase.from('profiles').select('id', { count: 'exact', head: true }),
+                    supabase.from('profiles').select('id', { count: 'exact' }),
                     supabase.from('print_orders').select('*').order('created_at', { ascending: false }).limit(10),
                     supabase.from('printing_locations').select('id, name, is_open, last_active_at, status'),
                     supabase.from('points_accounts').select('tier_level, lifetime_points'),
