@@ -46,16 +46,20 @@ export const AuthProvider = ({ children }) => {
         const initialize = async () => {
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
-                if (error) console.error('Auth session error:', error);
+                if (error) {
+                    console.error('Auth session error:', error);
+                }
 
                 if (session?.user && mounted) {
                     lastSessionIdRef.current = session.user.id;
                     setUser(session.user);
+                    // Crucial: Wait for the profile to load before releasing the loading lock
                     await fetchProfile(session.user.id);
                 }
             } catch (err) {
                 console.error('getSession failed:', err);
             } finally {
+                // Now we are safe to render the app
                 stopLoading();
             }
         };
@@ -64,10 +68,16 @@ export const AuthProvider = ({ children }) => {
             initializedRef.current = true;
 
             // Safety timeout to prevent eternal loading if init gets stuck
+            // We only trigger if it's currently loading, and we don't depend on `loading` state from React
             initTimeout = setTimeout(() => {
-                if (mounted && loading) {
-                    console.warn('AuthContext - Safety timeout triggered, forcing load to finish');
-                    stopLoading();
+                if (mounted) {
+                    setLoading(prev => {
+                        if (prev) {
+                            console.warn('AuthContext - Safety timeout triggered, forcing load to finish');
+                            return false;
+                        }
+                        return prev;
+                    });
                 }
             }, 5000);
 
@@ -94,9 +104,11 @@ export const AuthProvider = ({ children }) => {
                         return; // Aborta aquí. Evita la pantalla blanca por resync del profile tras inactividad
                     }
 
+                    if (mounted) setLoading(true);
                     lastSessionIdRef.current = session.user.id;
                     setUser(session.user);
                     await fetchProfile(session.user.id);
+                    if (mounted) setLoading(false);
                 } else if (event === 'SIGNED_OUT') {
                     lastSessionIdRef.current = null;
                     setUser(null);
@@ -110,7 +122,7 @@ export const AuthProvider = ({ children }) => {
             if (initTimeout) clearTimeout(initTimeout);
             subscription?.unsubscribe();
         };
-    }, [fetchProfile, loading]);
+    }, [fetchProfile]);
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({

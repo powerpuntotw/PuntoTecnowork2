@@ -44,7 +44,8 @@ export default function AdminDashboardPage() {
                 setRecentOrders(recentOrders);
 
                 const tiers = (pointsRes.data || []).reduce((acc, p) => {
-                    acc[p.tier_level] = (acc[p.tier_level] || 0) + 1;
+                    const tier = p.tier_level || 'bronze';
+                    acc[tier] = (acc[tier] || 0) + 1;
                     return acc;
                 }, {});
                 setTierData(Object.entries(tiers).map(([tier, value]) => ({ name: tier, value })));
@@ -99,7 +100,7 @@ export default function AdminDashboardPage() {
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie data={tierData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={8} dataKey="value"
-                                    label={({ name, percent }) => `${name.toUpperCase()} ${(percent * 100).toFixed(0)}%`}>
+                                    label={({ name, percent }) => `${String(name).toUpperCase()} ${(percent * 100).toFixed(0)}%`}>
                                     {tierData.map((entry, i) => <Cell key={i} fill={TIER_COLORS[entry.name] || '#6B7280'} stroke="none" />)}
                                 </Pie>
                                 <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
@@ -115,16 +116,16 @@ export default function AdminDashboardPage() {
                             <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50/50 hover:bg-gray-100/50 rounded-2xl transition-colors group">
                                 <div className="flex items-center gap-3">
                                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-[10px] uppercase">
-                                        {order.order_number.slice(-2)}
+                                        {(order.order_number || '00').slice(-2)}
                                     </div>
                                     <div>
-                                        <p className="font-bold text-xs text-gray-dark group-hover:text-primary transition-colors">{order.order_number}</p>
-                                        <p className="text-[10px] font-medium text-gray-medium">${order.total_amount.toLocaleString()}</p>
+                                        <p className="font-bold text-xs text-gray-dark group-hover:text-primary transition-colors">{order.order_number || 'N/A'}</p>
+                                        <p className="text-[10px] font-medium text-gray-medium">${Number(order.total_amount || 0).toLocaleString()}</p>
                                     </div>
                                 </div>
                                 <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase text-white shadow-sm"
-                                    style={{ backgroundColor: STATUS_COLORS[order.status] }}>
-                                    {order.status.replace('_', ' ')}
+                                    style={{ backgroundColor: STATUS_COLORS[order.status] || '#9CA3AF' }}>
+                                    {String(order.status || 'desconocido').replace('_', ' ')}
                                 </span>
                             </div>
                         ))}

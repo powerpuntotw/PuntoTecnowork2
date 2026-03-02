@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 
-export async function updateSession(request) {
+export async function middleware(request) {
     let supabaseResponse = NextResponse.next({
         request,
     });
@@ -15,7 +15,7 @@ export async function updateSession(request) {
                     return request.cookies.getAll();
                 },
                 setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
+                    cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
                     supabaseResponse = NextResponse.next({
                         request,
                     });
@@ -27,35 +27,7 @@ export async function updateSession(request) {
         }
     );
 
-    // Do not remove: this refreshes the session
-    await supabase.auth.getUser();
-
-    return supabaseResponse;
-}
-
-export async function middleware(request) {
-    const supabaseResponse = await updateSession(request);
-
-    // Create a supabase client from the response to check auth
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-        {
-            cookies: {
-                getAll() {
-                    return request.cookies.getAll();
-                },
-                setAll(cookiesToSet) {
-                    // Update the response cookies directly
-                    cookiesToSet.forEach(({ name, value, options }) => {
-                        supabaseResponse.cookies.set(name, value, options);
-                    });
-                }
-            }
-        }
-    );
-
-    // Get the current user session
+    // Get the current user session. This also refreshes the token if needed.
     const { data: { user } } = await supabase.auth.getUser();
 
     // Determine if it's a protected route
@@ -66,7 +38,18 @@ export async function middleware(request) {
 
     // Redirect to login if unauthenticated user tries to access a protected route
     if (!user && isProtectedRoute) {
-        return NextResponse.redirect(new URL('/login', request.url));
+        const url = request.nextUrl.clone();
+        url.pathname = '/login';
+        return NextResponse.redirect(url);
+    }
+
+    // Redirect authenticated users trying to access login page
+    if (user && request.nextUrl.pathname.startsWith('/login')) {
+        const url = request.nextUrl.clone();
+        // Since we don't know the role here easily without a heavy query, routing them to the default or letting the RoleGuard handle it is better.
+        // RoleGuard will bounce them to the right dashboard. We will bounce them to /admin/dashboard just to trigger RoleGuard.
+        url.pathname = '/admin/dashboard';
+        return NextResponse.redirect(url);
     }
 
     return supabaseResponse;
