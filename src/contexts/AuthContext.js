@@ -81,23 +81,20 @@ export const AuthProvider = ({ children }) => {
             // force sign out and redirect to login instead of showing empty dashboard
             initTimeout = setTimeout(() => {
                 if (mounted) {
-                    setLoading(prev => {
-                        if (prev) {
-                            console.warn('AuthContext - Safety timeout triggered, cleaning session');
-                            // CRITICAL: Clean stale session on timeout instead of just stopping loading.
-                            // Without this, user may have stale data but null profile = empty dashboard.
-                            supabase.auth.signOut({ scope: 'global' }).then(() => {
-                                if (mounted) {
-                                    setUser(null);
-                                    setProfile(null);
-                                    // Force full page reload to /login so middleware re-evaluates with clean cookies
-                                    window.location.href = '/login';
-                                }
-                            });
-                            return false;
+                    console.warn('AuthContext - Safety timeout triggered, cleaning session');
+                    // Immedately clear state so RoleGuard knows to redirect
+                    setUser(null);
+                    setProfile(null);
+
+                    supabase.auth.signOut({ scope: 'global' }).finally(() => {
+                        if (mounted) {
+                            // Force full page reload to /login so middleware re-evaluates with clean cookies
+                            window.location.href = '/login';
                         }
-                        return prev;
                     });
+
+                    // Release loading lock only AFTER we cleared the state
+                    setLoading(false);
                 }
             }, 8000);
 
