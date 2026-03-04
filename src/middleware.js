@@ -43,14 +43,10 @@ export async function middleware(request) {
         return NextResponse.redirect(url);
     }
 
-    // Redirect authenticated users trying to access login page
-    if (user && request.nextUrl.pathname.startsWith('/login')) {
-        const url = request.nextUrl.clone();
-        // Since we don't know the role here easily without a heavy query, routing them to the default or letting the RoleGuard handle it is better.
-        // RoleGuard will bounce them to the right dashboard. We will bounce them to /admin/dashboard just to trigger RoleGuard.
-        url.pathname = '/admin/dashboard';
-        return NextResponse.redirect(url);
-    }
+    // If an authenticated user goes to /login, let them through.
+    // They may be in the process of signing out (cookies still present but client-side session cleared).
+    // The AuthContext on the client side will handle the redirect to the correct dashboard if they are truly logged in.
+    // This avoids a redirect loop between middleware and AuthContext during sign-out.
 
     return supabaseResponse;
 }

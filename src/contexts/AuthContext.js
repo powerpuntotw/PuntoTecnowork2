@@ -86,10 +86,12 @@ export const AuthProvider = ({ children }) => {
                             console.warn('AuthContext - Safety timeout triggered, cleaning session');
                             // CRITICAL: Clean stale session on timeout instead of just stopping loading.
                             // Without this, user may have stale data but null profile = empty dashboard.
-                            supabase.auth.signOut().then(() => {
+                            supabase.auth.signOut({ scope: 'global' }).then(() => {
                                 if (mounted) {
                                     setUser(null);
                                     setProfile(null);
+                                    // Force full page reload to /login so middleware re-evaluates with clean cookies
+                                    window.location.href = '/login';
                                 }
                             });
                             return false;
@@ -150,14 +152,20 @@ export const AuthProvider = ({ children }) => {
             provider: 'google',
             options: {
                 redirectTo: `${window.location.origin}/auth/callback`,
+                queryParams: {
+                    prompt: 'select_account',
+                },
             }
         });
     };
 
     const signOut = async () => {
-        await supabase.auth.signOut();
+        // scope: 'global' ensures all sessions are terminated including server-side cookies
+        await supabase.auth.signOut({ scope: 'global' });
         setUser(null);
         setProfile(null);
+        // Use window.location.href (not router.push) to force full page reload
+        // This ensures the middleware re-evaluates with clean cookies
         window.location.href = '/login';
     };
 
