@@ -9,14 +9,14 @@
         "lint": "next lint"
     },
     "dependencies": {
-        "@supabase/ssr": "latest",
-        "@supabase/supabase-js": "latest",
+        "@supabase/ssr": "^0.6.1",
+        "@supabase/supabase-js": "^2.49.1",
         "canvas-confetti": "latest",
         "clsx": "latest",
         "date-fns": "latest",
         "framer-motion": "latest",
         "lucide-react": "latest",
-        "next": "latest",
+        "next": "^15.3.0",
         "react": "latest",
         "react-dom": "latest",
         "recharts": "latest",
