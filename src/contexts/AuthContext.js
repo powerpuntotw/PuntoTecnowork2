@@ -66,6 +66,9 @@ export const AuthProvider = ({ children }) => {
                 }
             } catch (err) {
                 console.error('Auth initialization failed:', err);
+                // On any unexpected error, ensure clean state to prevent empty dashboard
+                setUser(null);
+                setProfile(null);
             } finally {
                 stopLoading();
             }
@@ -74,12 +77,21 @@ export const AuthProvider = ({ children }) => {
         if (!initializedRef.current) {
             initializedRef.current = true;
 
-            // Safety timeout - increased to 8s to account for getUser() network latency
+            // Safety timeout: if getUser() hangs (known Supabase bug #35754),
+            // force sign out and redirect to login instead of showing empty dashboard
             initTimeout = setTimeout(() => {
                 if (mounted) {
                     setLoading(prev => {
                         if (prev) {
-                            console.warn('AuthContext - Safety timeout triggered, forcing load to finish');
+                            console.warn('AuthContext - Safety timeout triggered, cleaning session');
+                            // CRITICAL: Clean stale session on timeout instead of just stopping loading.
+                            // Without this, user may have stale data but null profile = empty dashboard.
+                            supabase.auth.signOut().then(() => {
+                                if (mounted) {
+                                    setUser(null);
+                                    setProfile(null);
+                                }
+                            });
                             return false;
                         }
                         return prev;
