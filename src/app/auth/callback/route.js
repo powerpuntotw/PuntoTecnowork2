@@ -30,14 +30,9 @@ export async function GET(request) {
                     user_type: 'client'
                 });
 
-                await supabase.from('points_accounts').insert({
-                    user_id: user.id,
-                    current_points: 0,
-                    lifetime_points: 0,
-                    tier_level: 'bronze'
-                });
-
-                return NextResponse.redirect(`${origin}/cliente/dashboard`);
+                // Points account creation will be handled by a Database Trigger automatically
+                // Redirect immediately to complete profile onboarding
+                return NextResponse.redirect(`${origin}/cliente/profile?onboarding=true`);
             }
 
             // Existing user redirect

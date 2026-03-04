@@ -77,9 +77,7 @@ export default function AdminUsersPage() {
     const deleteUser = async (userObj) => {
         if (!confirm(`¿Eliminar al usuario ${userObj.full_name || userObj.email}? Se borrarán todos sus datos permanentemente.`)) return;
         try {
-            const { error } = await supabase.functions.invoke('delete-user', {
-                body: { user_id: userObj.id }
-            });
+            const { error } = await supabase.rpc('admin_delete_user', { target_user_id: userObj.id });
             if (error) throw error;
 
             showToast('Usuario eliminado completamente', 'success');
