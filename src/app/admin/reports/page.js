@@ -143,17 +143,21 @@ export default function AdminReportsPage() {
                             <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Comparativa entre facturación y flujo de órdenes diarias</p>
                         </div>
                         <div className="h-[400px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={timeline}>
-                                    <CartesianGrid strokeDasharray="10 10" vertical={false} stroke="#F3F4F6" />
-                                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#9CA3AF' }} />
-                                    <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#9CA3AF' }} />
-                                    <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#9CA3AF' }} />
-                                    <Tooltip contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', fontSize: '10px', fontWeight: 900 }} />
-                                    <Line yAxisId="left" type="step" dataKey="orders" name="Órdenes" stroke="#2D2D2D" strokeWidth={4} dot={false} activeDot={{ r: 8, stroke: '#fff', strokeWidth: 4 }} />
-                                    <Line yAxisId="right" type="monotone" dataKey="revenue" name="Ingresos" stroke="#EB1C24" strokeWidth={4} dot={false} activeDot={{ r: 8, stroke: '#fff', strokeWidth: 4 }} />
-                                </LineChart>
-                            </ResponsiveContainer>
+                            {timeline.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={timeline}>
+                                        <CartesianGrid strokeDasharray="10 10" vertical={false} stroke="#F3F4F6" />
+                                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#9CA3AF' }} />
+                                        <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#9CA3AF' }} />
+                                        <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#9CA3AF' }} />
+                                        <Tooltip contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', fontSize: '10px', fontWeight: 900 }} />
+                                        <Line yAxisId="left" type="step" dataKey="orders" name="Órdenes" stroke="#2D2D2D" strokeWidth={4} dot={false} activeDot={{ r: 8, stroke: '#fff', strokeWidth: 4 }} />
+                                        <Line yAxisId="right" type="monotone" dataKey="revenue" name="Ingresos" stroke="#EB1C24" strokeWidth={4} dot={false} activeDot={{ r: 8, stroke: '#fff', strokeWidth: 4 }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-gray-medium text-sm">Sin datos en el período seleccionado</div>
+                            )}
                         </div>
                     </div>
 
@@ -161,32 +165,40 @@ export default function AdminReportsPage() {
                     <div className="bg-white rounded-[40px] p-8 shadow-xl border border-gray-100">
                         <h3 className="text-xs font-black text-gray-dark uppercase tracking-widest mb-10">Status de Operaciones</h3>
                         <div className="h-[300px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie data={ordersByStatus} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={8} dataKey="value" stroke="none">
-                                        {ordersByStatus.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                                    </Pie>
-                                    <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', shadow: 'xl' }} />
-                                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.1em' }} />
-                                </PieChart>
-                            </ResponsiveContainer>
+                            {ordersByStatus.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie data={ordersByStatus} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={8} dataKey="value" stroke="none">
+                                            {ordersByStatus.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                                        </Pie>
+                                        <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', shadow: 'xl' }} />
+                                        <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.1em' }} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-gray-medium text-sm">Sin datos de estados</div>
+                            )}
                         </div>
                     </div>
 
                     <div className="bg-white rounded-[40px] p-8 shadow-xl border border-gray-100">
                         <h3 className="text-xs font-black text-gray-dark uppercase tracking-widest mb-10">Competitividad por Sucursal</h3>
                         <div className="h-[300px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={revenueByLocation}>
-                                    <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#F9FAFB" />
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#D1D5DB' }} />
-                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#D1D5DB' }} />
-                                    <Tooltip cursor={{ fill: '#F9FAFB' }} contentStyle={{ borderRadius: '20px', border: 'none' }} />
-                                    <Bar dataKey="total" name="Facturación" radius={[12, 12, 12, 12]} barSize={40}>
-                                        {revenueByLocation.map((_, i) => <Cell key={i} fill={i % 2 === 0 ? '#EB1C24' : '#2D2D2D'} />)}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
+                            {revenueByLocation.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={revenueByLocation}>
+                                        <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#F9FAFB" />
+                                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#D1D5DB' }} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: '#D1D5DB' }} />
+                                        <Tooltip cursor={{ fill: '#F9FAFB' }} contentStyle={{ borderRadius: '20px', border: 'none' }} />
+                                        <Bar dataKey="total" name="Facturación" radius={[12, 12, 12, 12]} barSize={40}>
+                                            {revenueByLocation.map((_, i) => <Cell key={i} fill={i % 2 === 0 ? '#EB1C24' : '#2D2D2D'} />)}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-gray-medium text-sm">Sin datos de sucursales</div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -97,15 +97,19 @@ export default function AdminDashboardPage() {
                 <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 flex flex-col items-center">
                     <h3 className="font-bold text-gray-dark mb-6 w-full text-left">Distribución por Nivel</h3>
                     <div className="w-full h-[250px]">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                            <PieChart>
-                                <Pie data={tierData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={8} dataKey="value"
-                                    label={({ name, percent }) => `${String(name).toUpperCase()} ${(percent * 100).toFixed(0)}%`}>
-                                    {tierData.map((entry, i) => <Cell key={i} fill={TIER_COLORS[entry.name] || '#6B7280'} stroke="none" />)}
-                                </Pie>
-                                <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
-                            </PieChart>
-                        </ResponsiveContainer>
+                        {tierData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={tierData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={8} dataKey="value"
+                                        label={({ name, percent }) => `${String(name).toUpperCase()} ${(percent * 100).toFixed(0)}%`}>
+                                        {tierData.map((entry, i) => <Cell key={i} fill={TIER_COLORS[entry.name] || '#6B7280'} stroke="none" />)}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-gray-medium text-sm">Sin datos de niveles</div>
+                        )}
                     </div>
                 </motion.div>
 
