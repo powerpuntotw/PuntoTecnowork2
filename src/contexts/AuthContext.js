@@ -45,21 +45,28 @@ export const AuthProvider = ({ children }) => {
 
         const initialize = async () => {
             try {
-                const { data: { session }, error } = await supabase.auth.getSession();
-                if (error) {
-                    console.error('Auth session error:', error);
+                // CRITICAL FIX: Use getUser() instead of getSession()
+                // getUser() validates the token against Supabase Auth server
+                // getSession() only reads from local storage and can return stale/expired sessions
+                const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+
+                if (userError) {
+                    // Session is invalid or expired - clean up stale tokens
+                    console.error('Auth validation error:', userError.message);
+                    await supabase.auth.signOut();
+                    setUser(null);
+                    setProfile(null);
+                    return; // stopLoading will be called in finally
                 }
 
-                if (session?.user && mounted) {
-                    lastSessionIdRef.current = session.user.id;
-                    setUser(session.user);
-                    // Crucial: Wait for the profile to load before releasing the loading lock
-                    await fetchProfile(session.user.id);
+                if (currentUser && mounted) {
+                    lastSessionIdRef.current = currentUser.id;
+                    setUser(currentUser);
+                    await fetchProfile(currentUser.id);
                 }
             } catch (err) {
-                console.error('getSession failed:', err);
+                console.error('Auth initialization failed:', err);
             } finally {
-                // Now we are safe to render the app
                 stopLoading();
             }
         };
@@ -67,8 +74,7 @@ export const AuthProvider = ({ children }) => {
         if (!initializedRef.current) {
             initializedRef.current = true;
 
-            // Safety timeout to prevent eternal loading if init gets stuck
-            // We only trigger if it's currently loading, and we don't depend on `loading` state from React
+            // Safety timeout - increased to 8s to account for getUser() network latency
             initTimeout = setTimeout(() => {
                 if (mounted) {
                     setLoading(prev => {
@@ -79,11 +85,10 @@ export const AuthProvider = ({ children }) => {
                         return prev;
                     });
                 }
-            }, 5000);
+            }, 8000);
 
             initialize();
         } else {
-            // Already initialized, just stop loading
             stopLoading();
         }
 
@@ -91,17 +96,17 @@ export const AuthProvider = ({ children }) => {
             async (event, session) => {
                 if (!mounted) return;
 
-                // MECANISMO 1: Evitar procesar ráfagas del MISMO evento re-disparado al despertar la pestaña
+                // Avoid processing duplicate events
                 const eventKey = `${event}-${session?.user?.id || 'none'}`;
                 if (lastProcessedEventRef.current === eventKey) {
-                    return; // Si es el evento que acaba de ocurrir, no hacemos NADA
+                    return;
                 }
                 lastProcessedEventRef.current = eventKey;
 
-                // MECANISMO 2: El candado contra re-inicializaciones por inactividad
                 if (event === 'SIGNED_IN' && session?.user) {
+                    // Skip if same session already initialized (prevents re-render on tab focus)
                     if (initializedRef.current && lastSessionIdRef.current === session.user.id) {
-                        return; // Aborta aquí. Evita la pantalla blanca por resync del profile tras inactividad
+                        return;
                     }
 
                     if (mounted) setLoading(true);
@@ -109,8 +114,12 @@ export const AuthProvider = ({ children }) => {
                     setUser(session.user);
                     await fetchProfile(session.user.id);
                     if (mounted) setLoading(false);
+                } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+                    // Token was refreshed - update user silently without loading state
+                    setUser(session.user);
                 } else if (event === 'SIGNED_OUT') {
                     lastSessionIdRef.current = null;
+                    lastProcessedEventRef.current = null;
                     setUser(null);
                     setProfile(null);
                 }
