@@ -45,18 +45,20 @@ export const AuthProvider = ({ children }) => {
 
         const initialize = async () => {
             try {
-                // CRITICAL FIX: Use getUser() instead of getSession()
-                // getUser() validates the token against Supabase Auth server
-                // getSession() only reads from local storage and can return stale/expired sessions
+                // Return early if we already have the profile loaded
+                if (user && profile) {
+                    stopLoading();
+                    return;
+                }
+
+                // Use getUser() to ensure token is validated
                 const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
 
-                if (userError) {
-                    // Session is invalid or expired - clean up stale tokens
-                    console.error('Auth validation error:', userError.message);
-                    await supabase.auth.signOut();
+                if (userError || !currentUser) {
+                    console.error('Auth validation issue or no user:', userError?.message);
                     setUser(null);
                     setProfile(null);
-                    return; // stopLoading will be called in finally
+                    return;
                 }
 
                 if (currentUser && mounted) {
@@ -66,7 +68,6 @@ export const AuthProvider = ({ children }) => {
                 }
             } catch (err) {
                 console.error('Auth initialization failed:', err);
-                // On any unexpected error, ensure clean state to prevent empty dashboard
                 setUser(null);
                 setProfile(null);
             } finally {
@@ -74,65 +75,41 @@ export const AuthProvider = ({ children }) => {
             }
         };
 
-        if (!initializedRef.current) {
-            initializedRef.current = true;
+        // Safety timeout in case everything hangs
+        initTimeout = setTimeout(() => {
+            if (mounted && loading) {
+                console.warn('AuthContext - Safety timeout triggered');
+                setUser(null);
+                setProfile(null);
+            }
+        }, 8000);
 
-            // Safety timeout: if getUser() hangs (known Supabase bug #35754),
-            // force sign out and redirect to login instead of showing empty dashboard
-            initTimeout = setTimeout(() => {
-                if (mounted) {
-                    console.warn('AuthContext - Safety timeout triggered, cleaning session');
-                    // Immedately clear state so RoleGuard knows to redirect
-                    setUser(null);
-                    setProfile(null);
-
-                    supabase.auth.signOut({ scope: 'global' }).finally(() => {
-                        if (mounted) {
-                            // Force full page reload to /login so middleware re-evaluates with clean cookies
-                            window.location.href = '/login';
-                        }
-                    });
-
-                    // Release loading lock only AFTER we cleared the state
-                    setLoading(false);
-                }
-            }, 8000);
-
-            initialize();
-        } else {
-            stopLoading();
-        }
+        // Always run initialize. In StrictMode it might run twice, but React 18 
+        // will just fetch again, which is perfectly safe and necessary.
+        initialize();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 if (!mounted) return;
 
-                // Avoid processing duplicate events
-                const eventKey = `${event}-${session?.user?.id || 'none'}`;
-                if (lastProcessedEventRef.current === eventKey) {
-                    return;
-                }
-                lastProcessedEventRef.current = eventKey;
-
-                if (event === 'SIGNED_IN' && session?.user) {
-                    // Skip if same session already initialized (prevents re-render on tab focus)
-                    if (initializedRef.current && lastSessionIdRef.current === session.user.id) {
+                // Process SIGNED_IN or INITIAL_SESSION
+                if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+                    // Prevent duplicate fetches if already loaded the exact same session
+                    if (lastSessionIdRef.current === session.user.id && profile) {
                         return;
                     }
-
                     if (mounted) setLoading(true);
                     lastSessionIdRef.current = session.user.id;
                     setUser(session.user);
                     await fetchProfile(session.user.id);
                     if (mounted) setLoading(false);
                 } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-                    // Token was refreshed - update user silently without loading state
                     setUser(session.user);
                 } else if (event === 'SIGNED_OUT') {
                     lastSessionIdRef.current = null;
-                    lastProcessedEventRef.current = null;
                     setUser(null);
                     setProfile(null);
+                    if (mounted) setLoading(false);
                 }
             }
         );
@@ -142,7 +119,7 @@ export const AuthProvider = ({ children }) => {
             if (initTimeout) clearTimeout(initTimeout);
             subscription?.unsubscribe();
         };
-    }, [fetchProfile]);
+    }, [fetchProfile, user, profile, loading]);
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({
