@@ -28,9 +28,12 @@ export default function LocalLayout({ children }) {
     const { unreadCount, resetCount } = useSupportBadge();
 
     useEffect(() => {
-        if (!authLoading && (!profile || profile.user_type !== 'local')) {
+        // Only redirect if loading finished AND we have a profile that is NOT local
+        // If profile is null, wait — AuthContext is still loading it
+        if (!authLoading && profile && profile.user_type !== 'local') {
             router.push('/login');
         }
+        // If !authLoading && !user (no session), AuthContext already handles redirect
     }, [profile, authLoading, router]);
 
     useEffect(() => {
@@ -42,7 +45,7 @@ export default function LocalLayout({ children }) {
         router.push('/login');
     };
 
-    if (authLoading || (profile && profile.user_type !== 'local')) {
+    if (authLoading || !profile || profile.user_type !== 'local') {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />

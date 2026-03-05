@@ -1,53 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 export const RoleGuard = ({ children, allowedRoles }) => {
     const { user, profile, loading } = useAuth();
     const router = useRouter();
-    const pathname = usePathname();
-    const [waitingForProfile, setWaitingForProfile] = useState(false);
 
     useEffect(() => {
         if (!loading) {
             if (!user) {
                 router.push('/login');
-            } else if (profile) {
-                if (!allowedRoles.includes(profile.user_type)) {
-                    // Redirect to their own dashboard
-                    const DASHBOARDS = {
-                        admin: '/admin/dashboard',
-                        local: '/local/dashboard',
-                        client: '/cliente/dashboard'
-                    };
-                    router.push(DASHBOARDS[profile.user_type] || '/login');
-                } else if (profile.user_type === 'client') {
-                    // Check for onboarding completion
-                    const isProfileIncomplete = !profile.phone || !profile.dni;
-                    if (isProfileIncomplete && !pathname.includes('/profile')) {
-                        router.push('/cliente/profile?onboarding=true');
-                    }
-                }
-            } else if (user && !profile) {
-                // User exists but profile hasn't loaded yet — wait a bit then redirect to login
-                setWaitingForProfile(true);
+            } else if (profile && !allowedRoles.includes(profile.user_type)) {
+                // Redirect to their own dashboard
+                const DASHBOARDS = {
+                    admin: '/admin/dashboard',
+                    local: '/local/dashboard',
+                    client: '/cliente/dashboard'
+                };
+                router.push(DASHBOARDS[profile.user_type] || '/login');
             }
         }
-    }, [user, profile, loading, allowedRoles, router, pathname]);
+    }, [user, profile, loading, allowedRoles, router]);
 
-    // If user exists but profile never arrives, redirect to login after 5 seconds
-    useEffect(() => {
-        if (!waitingForProfile) return;
-        const timeout = setTimeout(() => {
-            if (!profile) {
-                router.push('/login');
-            }
-        }, 5000);
-        return () => clearTimeout(timeout);
-    }, [waitingForProfile, profile, router]);
-
+    // Show spinner while loading OR while user exists but profile hasn't loaded yet
+    // This does NOT redirect — it waits for the AuthContext to finish loading the profile
+    // The AuthContext has its own safety timeout (8s) that handles truly stuck sessions
     if (loading || !user || !profile || !allowedRoles.includes(profile.user_type)) {
         return (
             <div className="min-h-screen bg-gray-light flex items-center justify-center">
