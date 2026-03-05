@@ -12,7 +12,6 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const initializedRef = useRef(false);
     const lastSessionIdRef = useRef(null);
-    const lastProcessedEventRef = useRef(null);
 
     const fetchProfile = useCallback(async (userId, attempt = 1) => {
         try {
@@ -35,27 +34,20 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     useEffect(() => {
+        // Prevent double-init but allow StrictMode remount by resetting in cleanup
+        if (initializedRef.current) return;
+        initializedRef.current = true;
+
         let mounted = true;
         let initTimeout;
 
-        const stopLoading = () => {
-            if (mounted) setLoading(false);
-            if (initTimeout) clearTimeout(initTimeout);
-        };
-
         const initialize = async () => {
             try {
-                // Return early if we already have the profile loaded
-                if (user && profile) {
-                    stopLoading();
-                    return;
-                }
-
-                // Use getUser() to ensure token is validated
                 const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
 
-                if (userError || !currentUser) {
-                    console.error('Auth validation issue or no user:', userError?.message);
+                if (userError) {
+                    console.error('Auth validation error:', userError.message);
+                    await supabase.auth.signOut();
                     setUser(null);
                     setProfile(null);
                     return;
@@ -71,34 +63,31 @@ export const AuthProvider = ({ children }) => {
                 setUser(null);
                 setProfile(null);
             } finally {
-                stopLoading();
+                if (mounted) setLoading(false);
+                if (initTimeout) clearTimeout(initTimeout);
             }
         };
 
-        // Safety timeout in case everything hangs
+        // Safety timeout: if getUser() hangs, force loading to false
         initTimeout = setTimeout(() => {
-            if (mounted && loading) {
+            if (mounted) {
                 console.warn('AuthContext - Safety timeout triggered');
-                setUser(null);
-                setProfile(null);
+                setLoading(false);
             }
-        }, 8000);
+        }, 10000);
 
-        // Always run initialize. In StrictMode it might run twice, but React 18 
-        // will just fetch again, which is perfectly safe and necessary.
         initialize();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 if (!mounted) return;
 
-                // Process SIGNED_IN or INITIAL_SESSION
-                if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-                    // Prevent duplicate fetches if already loaded the exact same session
-                    if (lastSessionIdRef.current === session.user.id && profile) {
+                if (event === 'SIGNED_IN' && session?.user) {
+                    // Skip if same session already loaded (prevents re-fetch on tab focus)
+                    if (lastSessionIdRef.current === session.user.id) {
                         return;
                     }
-                    if (mounted) setLoading(true);
+                    setLoading(true);
                     lastSessionIdRef.current = session.user.id;
                     setUser(session.user);
                     await fetchProfile(session.user.id);
@@ -116,10 +105,11 @@ export const AuthProvider = ({ children }) => {
 
         return () => {
             mounted = false;
+            initializedRef.current = false; // Reset for StrictMode remount
             if (initTimeout) clearTimeout(initTimeout);
             subscription?.unsubscribe();
         };
-    }, [fetchProfile, user, profile, loading]);
+    }, [fetchProfile]);
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({
