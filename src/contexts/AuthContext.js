@@ -34,6 +34,7 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         let mounted = true;
         let authSubscription = null;
+        let safetyTimeout = null;
 
         const initializeAuth = async () => {
             try {
@@ -55,13 +56,24 @@ export const AuthProvider = ({ children }) => {
                 setUser(null);
                 setProfile(null);
             } finally {
-                if (mounted) setLoading(false);
+                if (mounted) {
+                    setLoading(false);
+                    if (safetyTimeout) clearTimeout(safetyTimeout);
+                }
             }
         };
 
         // Initialize explicitly on mount. This guarantees it runs even in React StrictMode remounts
         // where INITIAL_SESSION events might be swallowed by the Supabase client.
         initializeAuth();
+
+        // Safety timeout: if Supabase getSession() hangs while refreshing a token, or fetchProfile hangs
+        safetyTimeout = setTimeout(() => {
+            if (mounted && loading) {
+                console.warn('AuthContext - Safety timeout triggered (10s). Forcing load completion.');
+                setLoading(false);
+            }
+        }, 10000);
 
         // Listen for subsequent state changes (login, logout, token refresh)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -70,10 +82,8 @@ export const AuthProvider = ({ children }) => {
 
                 if (event === 'SIGNED_IN') {
                     if (session?.user) {
-                        setLoading(true);
                         setUser(session.user);
                         await fetchProfile(session.user.id);
-                        if (mounted) setLoading(false);
                     }
                 } else if (event === 'TOKEN_REFRESHED') {
                     if (session?.user) {
@@ -91,9 +101,10 @@ export const AuthProvider = ({ children }) => {
 
         return () => {
             mounted = false;
+            if (safetyTimeout) clearTimeout(safetyTimeout);
             authSubscription?.unsubscribe();
         };
-    }, [fetchProfile]);
+    }, [fetchProfile, loading]);
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({
