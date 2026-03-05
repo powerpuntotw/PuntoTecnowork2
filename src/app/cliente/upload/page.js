@@ -117,8 +117,14 @@ export default function UploadFilesPage() {
                 const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
                 const filePath = `${user.id}/${tempOrderId}/${i}_${safeName}`;
 
+                // CRITICAL FIX: Convert to ArrayBuffer to bypass Mobile Safari / WebKit fetch stream hangs
+                const arrayBuffer = await file.arrayBuffer();
+
                 // Add a simple timeout wrapper to prevent indefinite hanging on dropped mobile connections
-                const uploadPromise = supabase.storage.from('print-files').upload(filePath, file);
+                const uploadPromise = supabase.storage.from('print-files').upload(filePath, arrayBuffer, {
+                    contentType: file.type,
+                    upsert: false
+                });
                 const timeoutPromise = new Promise((_, reject) =>
                     setTimeout(() => reject(new Error(`Timeout al subir el archivo ${i + 1}`)), 45000)
                 );
