@@ -9,6 +9,22 @@ import { useToast } from '@/components/Toast';
 import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+const playNotificationSound = () => {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 800;
+        osc.type = 'sine';
+        gain.gain.value = 0.3;
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.stop(ctx.currentTime + 0.3);
+    } catch (e) { /* Audio not available */ }
+};
+
 const SYSTEM_CATEGORIES = [
     'Falta de Insumos (Papel/Tóner)',
     'Falla de Impresora o Hardware',
@@ -42,7 +58,7 @@ export default function LocalSupportPage() {
 
     const fetchTickets = async () => {
         if (!profile?.location_id) return;
-        const { data } = await supabase.from('support_tickets').select('*, creator:profiles(full_name, user_type)').eq('location_id', profile.location_id).eq('ticket_type', 'system_report').order('created_at', { ascending: false });
+        const { data } = await supabase.from('support_tickets').select('*, creator:profiles(full_name, user_type)').eq('location_id', profile.location_id).order('created_at', { ascending: false });
         setTickets(data || []);
         setLoading(false);
     };
@@ -57,7 +73,8 @@ export default function LocalSupportPage() {
             if (payload.new.creator_id !== profile.id) {
                 fetchTickets();
                 setUnreadTicketIds(prev => new Set([...prev, payload.new.id]));
-                showToast('💬 Nuevo chat del administrador', 'info');
+                playNotificationSound();
+                showToast(`💬 Nuevo ${payload.new.ticket_type === 'system_report' ? 'chat del administrador' : 'ticket de cliente'}`, 'info');
             }
         }).subscribe();
         return () => supabase.removeChannel(ticketChannel);
@@ -73,7 +90,7 @@ export default function LocalSupportPage() {
             }
         };
         fetchMessages();
-        const sub = supabase.channel(`ticket_${activeTicket.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${activeTicket.id}` }, fetchMessages).subscribe();
+        const sub = supabase.channel(`ticket_${activeTicket.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${activeTicket.id}` }, () => { playNotificationSound(); fetchMessages(); }).subscribe();
         return () => supabase.removeChannel(sub);
     }, [activeTicket]);
 
@@ -119,8 +136,23 @@ export default function LocalSupportPage() {
                             <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-1">Ticket #{activeTicket.id.slice(0, 8)}</p>
                         </div>
                     </div>
-                    <div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest ${activeTicket.status === 'open' ? 'bg-primary text-white shadow-brand' : 'bg-success/10 text-success'}`}>
-                        {activeTicket.status === 'open' ? 'Abierto' : 'Resuelto ✓'}
+                    <div className="flex items-center gap-2">
+                        <div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest ${activeTicket.status === 'open' ? 'bg-primary text-white shadow-brand' : 'bg-success/10 text-success'}`}>
+                            {activeTicket.status === 'open' ? 'Abierto' : 'Resuelto ✓'}
+                        </div>
+                        {activeTicket.status === 'open' && (
+                            <button onClick={async () => {
+                                if (!confirm('¿Marcar este ticket como resuelto?')) return;
+                                const { error } = await supabase.from('support_tickets').update({ status: 'resolved', resolved_at: new Date().toISOString() }).eq('id', activeTicket.id);
+                                if (!error) {
+                                    showToast('Ticket resuelto', 'success');
+                                    setActiveTicket({ ...activeTicket, status: 'resolved' });
+                                    fetchTickets();
+                                }
+                            }} className="px-4 py-2 bg-success text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-success/90 transition-colors">
+                                Resolver ✓
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -229,6 +261,9 @@ export default function LocalSupportPage() {
                                 <div>
                                     <div className="flex items-center gap-3 mb-1">
                                         <h3 className="text-sm font-black text-gray-dark uppercase tracking-tight">{t.category}</h3>
+                                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${t.ticket_type === 'system_report' ? 'bg-indigo-50 text-indigo-400' : 'bg-orange-50 text-orange-400'}`}>
+                                            {t.ticket_type === 'system_report' ? 'Sistema' : 'Cliente'}
+                                        </span>
                                         {hasUnread && <span className="bg-primary text-white text-[8px] font-black px-2 py-0.5 rounded-full animate-pulse">NUEVO</span>}
                                     </div>
                                     <p className="text-[10px] font-bold text-gray-medium uppercase tracking-widest">

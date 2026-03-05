@@ -9,6 +9,22 @@ import { useToast } from '@/components/Toast';
 import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+const playNotificationSound = () => {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 800;
+        osc.type = 'sine';
+        gain.gain.value = 0.3;
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.stop(ctx.currentTime + 0.3);
+    } catch (e) { /* Audio not available */ }
+};
+
 const CLIENT_CATEGORIES = [
     'Problema con mi orden',
     'Error en el cobro / facturación',
@@ -28,7 +44,8 @@ export default function SupportPage() {
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [form, setForm] = useState({ category: CLIENT_CATEGORIES[0], description: '' });
+    const [form, setForm] = useState({ category: CLIENT_CATEGORIES[0], description: '', location_id: '' });
+    const [locations, setLocations] = useState([]);
 
     const [activeTicket, setActiveTicket] = useState(null);
     const [messages, setMessages] = useState([]);
@@ -43,7 +60,7 @@ export default function SupportPage() {
     const fetchTickets = async () => {
         if (!user) return;
         setLoading(true);
-        const { data } = await supabase.from('support_tickets').select('*').eq('creator_id', user.id).order('created_at', { ascending: false });
+        const { data } = await supabase.from('support_tickets').select('*, location:printing_locations(name)').eq('creator_id', user.id).order('created_at', { ascending: false });
         setTickets(data || []);
         setLoading(false);
     };
@@ -51,6 +68,14 @@ export default function SupportPage() {
     useEffect(() => {
         fetchTickets();
     }, [user?.id]);
+
+    useEffect(() => {
+        const fetchLocations = async () => {
+            const { data } = await supabase.from('printing_locations').select('id, name').eq('status', 'activo').order('name');
+            if (data) setLocations(data);
+        };
+        fetchLocations();
+    }, []);
 
     useEffect(() => {
         if (!activeTicket) return;
@@ -62,7 +87,7 @@ export default function SupportPage() {
             }
         };
         fetchMessages();
-        const sub = supabase.channel(`ticket_msg_${activeTicket.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${activeTicket.id}` }, fetchMessages).subscribe();
+        const sub = supabase.channel(`ticket_msg_${activeTicket.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${activeTicket.id}` }, () => { playNotificationSound(); fetchMessages(); }).subscribe();
         return () => supabase.removeChannel(sub);
     }, [activeTicket]);
 
@@ -71,10 +96,10 @@ export default function SupportPage() {
         if (!form.description.trim()) return showToast('Escribí una descripción', 'error');
         setSubmitting(true);
         try {
-            const { error } = await supabase.from('support_tickets').insert({ creator_id: user.id, ticket_type: 'client_general', category: form.category, description: form.description.trim() });
+            const { error } = await supabase.from('support_tickets').insert({ creator_id: user.id, location_id: form.location_id || null, ticket_type: 'client_general', category: form.category, description: form.description.trim() });
             if (error) throw error;
             showToast('Consulta enviada', 'success');
-            setForm({ category: CLIENT_CATEGORIES[0], description: '' });
+            setForm({ category: CLIENT_CATEGORIES[0], description: '', location_id: '' });
             setShowForm(false);
             fetchTickets();
         } catch (err) {
@@ -187,6 +212,13 @@ export default function SupportPage() {
                             </div>
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
+                                    <label className="text-[10px] font-black text-gray-medium uppercase tracking-widest mb-2 block">Seleccioná el local</label>
+                                    <select value={form.location_id} onChange={e => setForm({ ...form, location_id: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition text-sm">
+                                        <option value="">Seleccionar local...</option>
+                                        {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
                                     <label className="text-[10px] font-black text-gray-medium uppercase tracking-widest mb-2 block">Seleccioná un motivo</label>
                                     <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition text-sm">
                                         {CLIENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -196,7 +228,7 @@ export default function SupportPage() {
                                     <label className="text-[10px] font-black text-gray-medium uppercase tracking-widest mb-2 block">Detallanos el problema</label>
                                     <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="¿En qué podemos ayudarte?" rows="4" className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition resize-none text-sm" />
                                 </div>
-                                <button type="submit" disabled={submitting || !form.description.trim()} className="w-full bg-primary text-white py-4 rounded-2xl font-black shadow-brand disabled:opacity-50 text-lg">Enviar Consulta</button>
+                                <button type="submit" disabled={submitting || !form.description.trim() || !form.location_id} className="w-full bg-primary text-white py-4 rounded-2xl font-black shadow-brand disabled:opacity-50 text-lg">Enviar Consulta</button>
                             </form>
                         </div>
                     </motion.div>
@@ -222,6 +254,7 @@ export default function SupportPage() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
                                             <h3 className="font-bold text-gray-dark truncate group-hover:text-primary transition-colors">{ticket.category}</h3>
+                                            {ticket.location?.name && <span className="text-[9px] font-bold text-gray-400">→ {ticket.location.name}</span>}
                                             <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter shrink-0">{formatDistanceToNow(new Date(ticket.created_at), { locale: es, addSuffix: true })}</span>
                                         </div>
                                         <p className="text-xs text-gray-medium line-clamp-1 italic">"{ticket.description}"</p>
