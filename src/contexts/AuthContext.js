@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { createClient } from '../lib/supabase/client';
 
 const AuthContext = createContext({});
@@ -10,8 +10,6 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
-    const initializedRef = useRef(false);
-    const lastSessionIdRef = useRef(null);
 
     const fetchProfile = useCallback(async (userId, attempt = 1) => {
         try {
@@ -34,68 +32,27 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     useEffect(() => {
-        // Prevent double-init but allow StrictMode remount by resetting in cleanup
-        if (initializedRef.current) return;
-        initializedRef.current = true;
-
         let mounted = true;
-        let initTimeout;
 
-        const initialize = async () => {
-            try {
-                const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
-
-                if (userError) {
-                    console.error('Auth validation error:', userError.message);
-                    await supabase.auth.signOut();
-                    setUser(null);
-                    setProfile(null);
-                    return;
-                }
-
-                if (currentUser && mounted) {
-                    lastSessionIdRef.current = currentUser.id;
-                    setUser(currentUser);
-                    await fetchProfile(currentUser.id);
-                }
-            } catch (err) {
-                console.error('Auth initialization failed:', err);
-                setUser(null);
-                setProfile(null);
-            } finally {
-                if (mounted) setLoading(false);
-                if (initTimeout) clearTimeout(initTimeout);
-            }
-        };
-
-        // Safety timeout: if getUser() hangs, force loading to false
-        initTimeout = setTimeout(() => {
-            if (mounted) {
-                console.warn('AuthContext - Safety timeout triggered');
-                setLoading(false);
-            }
-        }, 10000);
-
-        initialize();
-
+        // Use onAuthStateChange as the SINGLE source of truth.
+        // INITIAL_SESSION fires immediately with session from cookies/storage — NO network roundtrip.
+        // This eliminates the getUser() latency issue entirely.
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 if (!mounted) return;
 
-                if (event === 'SIGNED_IN' && session?.user) {
-                    // Skip if same session already loaded (prevents re-fetch on tab focus)
-                    if (lastSessionIdRef.current === session.user.id) {
-                        return;
+                if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+                    if (session?.user) {
+                        setUser(session.user);
+                        await fetchProfile(session.user.id);
+                    } else {
+                        setUser(null);
+                        setProfile(null);
                     }
-                    setLoading(true);
-                    lastSessionIdRef.current = session.user.id;
-                    setUser(session.user);
-                    await fetchProfile(session.user.id);
                     if (mounted) setLoading(false);
                 } else if (event === 'TOKEN_REFRESHED' && session?.user) {
                     setUser(session.user);
                 } else if (event === 'SIGNED_OUT') {
-                    lastSessionIdRef.current = null;
                     setUser(null);
                     setProfile(null);
                     if (mounted) setLoading(false);
@@ -103,10 +60,14 @@ export const AuthProvider = ({ children }) => {
             }
         );
 
+        // Safety: if no event fires within 15 seconds, stop loading
+        const safetyTimeout = setTimeout(() => {
+            if (mounted) setLoading(false);
+        }, 15000);
+
         return () => {
             mounted = false;
-            initializedRef.current = false; // Reset for StrictMode remount
-            if (initTimeout) clearTimeout(initTimeout);
+            clearTimeout(safetyTimeout);
             subscription?.unsubscribe();
         };
     }, [fetchProfile]);
@@ -124,12 +85,9 @@ export const AuthProvider = ({ children }) => {
     };
 
     const signOut = async () => {
-        // scope: 'global' ensures all sessions are terminated including server-side cookies
         await supabase.auth.signOut({ scope: 'global' });
         setUser(null);
         setProfile(null);
-        // Use window.location.href (not router.push) to force full page reload
-        // This ensures the middleware re-evaluates with clean cookies
         window.location.href = '/login';
     };
 
