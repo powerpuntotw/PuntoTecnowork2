@@ -33,6 +33,14 @@ const SYSTEM_CATEGORIES = [
     'Otro'
 ];
 
+const CLIENT_CATEGORIES = [
+    'Problema con el Archivo',
+    'Aviso sobre el Pedido',
+    'Consulta de Pago',
+    'Notificación de Retiro',
+    'Otro'
+];
+
 const supabase = createClient();
 
 export default function LocalSupportPage() {
@@ -261,11 +269,17 @@ export default function LocalSupportPage() {
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Destinatario</label>
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => setDestinationType('admin')}
+                                    <button type="button" onClick={() => {
+                                        setDestinationType('admin');
+                                        setForm({ ...form, category: SYSTEM_CATEGORIES[0] });
+                                    }}
                                         className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${destinationType === 'admin' ? 'bg-gray-dark text-white shadow-lg' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
                                         Administrador
                                     </button>
-                                    <button type="button" onClick={() => setDestinationType('client')}
+                                    <button type="button" onClick={() => {
+                                        setDestinationType('client');
+                                        setForm({ ...form, category: CLIENT_CATEGORIES[0] });
+                                    }}
                                         className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${destinationType === 'client' ? 'bg-primary text-white shadow-lg' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
                                         Cliente
                                     </button>
@@ -285,7 +299,7 @@ export default function LocalSupportPage() {
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Categoría</label>
                                 <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
                                     className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 font-bold text-sm shadow-inner outline-none focus:ring-2 focus:ring-primary/20">
-                                    {SYSTEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                    {(destinationType === 'admin' ? SYSTEM_CATEGORIES : CLIENT_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
                             <div className="space-y-2">

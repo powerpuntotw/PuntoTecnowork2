@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '../lib/supabase/client';
 
 const AuthContext = createContext({});
@@ -10,6 +10,7 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+    const fetchingRef = useRef(false);
 
     const fetchProfile = useCallback(async (userId, attempt = 1) => {
         try {
@@ -34,33 +35,44 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         let mounted = true;
 
-        // Use onAuthStateChange as the SINGLE source of truth.
-        // INITIAL_SESSION fires immediately with session from cookies/storage — NO network roundtrip.
-        // This eliminates the getUser() latency issue entirely.
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
-                if (!mounted) return;
+        const handleAuthEvent = async (event, session) => {
+            if (!mounted) return;
 
-                if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
-                    if (session?.user) {
-                        setUser(session.user);
-                        await fetchProfile(session.user.id);
-                    } else {
-                        setUser(null);
-                        setProfile(null);
-                    }
-                    if (mounted) setLoading(false);
-                } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+            if (event === 'INITIAL_SESSION') {
+                if (session?.user) {
+                    // Session exists in cookies — load profile
+                    fetchingRef.current = true;
                     setUser(session.user);
-                } else if (event === 'SIGNED_OUT') {
-                    setUser(null);
-                    setProfile(null);
+                    await fetchProfile(session.user.id);
+                    fetchingRef.current = false;
                     if (mounted) setLoading(false);
+                } else {
+                    // No session in cookies. DON'T set loading=false yet!
+                    // Wait a moment for potential SIGNED_IN event (fresh OAuth redirect)
+                    setTimeout(() => {
+                        if (mounted && !fetchingRef.current) {
+                            setLoading(false);
+                        }
+                    }, 2000);
                 }
+            } else if (event === 'SIGNED_IN' && session?.user) {
+                fetchingRef.current = true;
+                setUser(session.user);
+                await fetchProfile(session.user.id);
+                fetchingRef.current = false;
+                if (mounted) setLoading(false);
+            } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+                setUser(session.user);
+            } else if (event === 'SIGNED_OUT') {
+                setUser(null);
+                setProfile(null);
+                if (mounted) setLoading(false);
             }
-        );
+        };
 
-        // Safety: if no event fires within 15 seconds, stop loading
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthEvent);
+
+        // Safety: if nothing resolves within 15 seconds, stop loading
         const safetyTimeout = setTimeout(() => {
             if (mounted) setLoading(false);
         }, 15000);
