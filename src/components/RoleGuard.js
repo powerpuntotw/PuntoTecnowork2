@@ -10,11 +10,11 @@ export const RoleGuard = ({ children, allowedRoles }) => {
 
     useEffect(() => {
         if (!loading) {
-            if (!user || !profile) {
-                // No user, or user exists but profile failed to load → redirect to login
+            if (!user) {
+                // No session at all — go to login
                 router.push('/login');
-            } else if (!allowedRoles.includes(profile.user_type)) {
-                // User has wrong role → redirect to their own dashboard
+            } else if (profile && !allowedRoles.includes(profile.user_type)) {
+                // Profile loaded but wrong role — redirect to correct dashboard
                 const DASHBOARDS = {
                     admin: '/admin/dashboard',
                     local: '/local/dashboard',
@@ -22,9 +22,12 @@ export const RoleGuard = ({ children, allowedRoles }) => {
                 };
                 router.push(DASHBOARDS[profile.user_type] || '/login');
             }
+            // If user exists but profile is null — do NOTHING, wait for it to load
+            // The AuthContext safety timeout (10s) handles truly stuck sessions
         }
     }, [user, profile, loading, allowedRoles, router]);
 
+    // Show spinner while loading OR while waiting for profile
     if (loading || !user || !profile || !allowedRoles.includes(profile.user_type)) {
         return (
             <div className="min-h-screen bg-gray-light flex items-center justify-center">

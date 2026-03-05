@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '../lib/supabase/client';
 
 const AuthContext = createContext({});
@@ -10,6 +10,7 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+    const initializedRef = useRef(false);
 
     const fetchProfile = useCallback(async (userId, attempt = 1) => {
         try {
@@ -33,28 +34,40 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         let mounted = true;
-        let authSubscription = null;
         let safetyTimeout = null;
 
-        const initializeAuth = async () => {
+        const initialize = async () => {
+            // Only run once — React StrictMode may remount but we don't re-initialize
+            if (initializedRef.current) {
+                if (mounted) setLoading(false);
+                return;
+            }
+            initializedRef.current = true;
+
             try {
-                // getSession is synchronous with local storage / cookies.
-                // It does not hit the network to validate the token, making it instant and reliable.
+                // Use getSession() for fast local read (no network call, no hang risk).
+                // The middleware already validates tokens server-side with getUser().
+                // If the session is stale, Supabase queries will fail and user will be redirected.
                 const { data: { session }, error } = await supabase.auth.getSession();
 
-                if (error) throw error;
+                if (error || !session?.user) {
+                    if (mounted) {
+                        setUser(null);
+                        setProfile(null);
+                    }
+                    return;
+                }
 
-                if (session?.user) {
+                if (mounted) {
                     setUser(session.user);
                     await fetchProfile(session.user.id);
-                } else {
+                }
+            } catch (err) {
+                console.error('Auth initialization failed:', err);
+                if (mounted) {
                     setUser(null);
                     setProfile(null);
                 }
-            } catch (err) {
-                console.error("Auth init error:", err);
-                setUser(null);
-                setProfile(null);
             } finally {
                 if (mounted) {
                     setLoading(false);
@@ -63,32 +76,29 @@ export const AuthProvider = ({ children }) => {
             }
         };
 
-        // Initialize explicitly on mount. This guarantees it runs even in React StrictMode remounts
-        // where INITIAL_SESSION events might be swallowed by the Supabase client.
-        initializeAuth();
-
-        // Safety timeout: if Supabase getSession() hangs while refreshing a token, or fetchProfile hangs
+        // Safety timeout: if getSession + fetchProfile hang for any reason
         safetyTimeout = setTimeout(() => {
-            if (mounted && loading) {
-                console.warn('AuthContext - Safety timeout triggered (10s). Forcing load completion.');
+            if (mounted) {
+                console.warn('AuthContext - Safety timeout triggered (10s)');
+                setUser(null);
+                setProfile(null);
                 setLoading(false);
             }
         }, 10000);
 
-        // Listen for subsequent state changes (login, logout, token refresh)
+        initialize();
+
+        // Listen for auth state changes (login, logout, token refresh)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 if (!mounted) return;
 
-                if (event === 'SIGNED_IN') {
-                    if (session?.user) {
-                        setUser(session.user);
-                        await fetchProfile(session.user.id);
-                    }
-                } else if (event === 'TOKEN_REFRESHED') {
-                    if (session?.user) {
-                        setUser(session.user);
-                    }
+                if (event === 'SIGNED_IN' && session?.user) {
+                    setUser(session.user);
+                    await fetchProfile(session.user.id);
+                    if (mounted) setLoading(false);
+                } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+                    setUser(session.user);
                 } else if (event === 'SIGNED_OUT') {
                     setUser(null);
                     setProfile(null);
@@ -97,14 +107,12 @@ export const AuthProvider = ({ children }) => {
             }
         );
 
-        authSubscription = subscription;
-
         return () => {
             mounted = false;
             if (safetyTimeout) clearTimeout(safetyTimeout);
-            authSubscription?.unsubscribe();
+            subscription?.unsubscribe();
         };
-    }, [fetchProfile, loading]);
+    }, [fetchProfile]);
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({

@@ -29,7 +29,9 @@ export default function LocalLayout({ children }) {
 
     useEffect(() => {
         if (!authLoading) {
-            if (!profile || profile.user_type !== 'local') {
+            // Only redirect if profile loaded with wrong role
+            // If profile is null, wait — AuthContext is still loading it
+            if (profile && profile.user_type !== 'local') {
                 router.push('/login');
             }
         }
