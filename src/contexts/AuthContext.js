@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { createClient } from '../lib/supabase/client';
 
 const AuthContext = createContext({});
@@ -10,7 +10,6 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
-    const fetchingRef = useRef(false);
 
     const fetchProfile = useCallback(async (userId, attempt = 1) => {
         try {
@@ -34,53 +33,65 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         let mounted = true;
+        let authSubscription = null;
 
-        const handleAuthEvent = async (event, session) => {
-            if (!mounted) return;
+        const initializeAuth = async () => {
+            try {
+                // getSession is synchronous with local storage / cookies.
+                // It does not hit the network to validate the token, making it instant and reliable.
+                const { data: { session }, error } = await supabase.auth.getSession();
 
-            if (event === 'INITIAL_SESSION') {
+                if (error) throw error;
+
                 if (session?.user) {
-                    // Session exists in cookies — load profile
-                    fetchingRef.current = true;
                     setUser(session.user);
                     await fetchProfile(session.user.id);
-                    fetchingRef.current = false;
-                    if (mounted) setLoading(false);
                 } else {
-                    // No session in cookies. DON'T set loading=false yet!
-                    // Wait a moment for potential SIGNED_IN event (fresh OAuth redirect)
-                    setTimeout(() => {
-                        if (mounted && !fetchingRef.current) {
-                            setLoading(false);
-                        }
-                    }, 2000);
+                    setUser(null);
+                    setProfile(null);
                 }
-            } else if (event === 'SIGNED_IN' && session?.user) {
-                fetchingRef.current = true;
-                setUser(session.user);
-                await fetchProfile(session.user.id);
-                fetchingRef.current = false;
-                if (mounted) setLoading(false);
-            } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-                setUser(session.user);
-            } else if (event === 'SIGNED_OUT') {
+            } catch (err) {
+                console.error("Auth init error:", err);
                 setUser(null);
                 setProfile(null);
+            } finally {
                 if (mounted) setLoading(false);
             }
         };
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthEvent);
+        // Initialize explicitly on mount. This guarantees it runs even in React StrictMode remounts
+        // where INITIAL_SESSION events might be swallowed by the Supabase client.
+        initializeAuth();
 
-        // Safety: if nothing resolves within 15 seconds, stop loading
-        const safetyTimeout = setTimeout(() => {
-            if (mounted) setLoading(false);
-        }, 15000);
+        // Listen for subsequent state changes (login, logout, token refresh)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (event, session) => {
+                if (!mounted) return;
+
+                if (event === 'SIGNED_IN') {
+                    if (session?.user) {
+                        setLoading(true);
+                        setUser(session.user);
+                        await fetchProfile(session.user.id);
+                        if (mounted) setLoading(false);
+                    }
+                } else if (event === 'TOKEN_REFRESHED') {
+                    if (session?.user) {
+                        setUser(session.user);
+                    }
+                } else if (event === 'SIGNED_OUT') {
+                    setUser(null);
+                    setProfile(null);
+                    if (mounted) setLoading(false);
+                }
+            }
+        );
+
+        authSubscription = subscription;
 
         return () => {
             mounted = false;
-            clearTimeout(safetyTimeout);
-            subscription?.unsubscribe();
+            authSubscription?.unsubscribe();
         };
     }, [fetchProfile]);
 
