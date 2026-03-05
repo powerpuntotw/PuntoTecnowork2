@@ -105,14 +105,30 @@ export default function UploadFilesPage() {
         if (!user) return;
         setIsSubmitting(true);
         try {
-            const tempOrderId = crypto.randomUUID();
-            const uploadPromises = files.map(async ({ file }) => {
-                const filePath = `${user.id}/${tempOrderId}/${file.name}`;
-                const { error } = await supabase.storage.from('print-files').upload(filePath, file);
+            // Fallback for older mobile browsers that lack crypto.randomUUID in some contexts
+            const tempOrderId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+
+            const uploadedFiles = [];
+
+            // Upload sequentially to avoid choking mobile network stacks and memory (silent hangs)
+            for (let i = 0; i < files.length; i++) {
+                const { file } = files[i];
+                // Sanitize filename and prepend index to avoid iOS camera multi-upload collisions (image.jpg)
+                const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                const filePath = `${user.id}/${tempOrderId}/${i}_${safeName}`;
+
+                // Add a simple timeout wrapper to prevent indefinite hanging on dropped mobile connections
+                const uploadPromise = supabase.storage.from('print-files').upload(filePath, file);
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Timeout al subir el archivo ${i + 1}`)), 45000)
+                );
+
+                const { error } = await Promise.race([uploadPromise, timeoutPromise]);
                 if (error) throw error;
-                return filePath;
-            });
-            const uploadedFiles = await Promise.all(uploadPromises);
+
+                uploadedFiles.push(filePath);
+            }
+
             const total = calculateTotal();
             const pts = calculatePoints();
 
@@ -133,7 +149,8 @@ export default function UploadFilesPage() {
             setOrderResult(order);
             setStep(5);
         } catch (err) {
-            showToast('Error al crear la orden: ' + err.message, 'error');
+            console.error("Error en handleSubmit celular:", err);
+            showToast('Error al crear la orden: ' + (err.message || 'Error de red'), 'error');
         } finally {
             setIsSubmitting(false);
         }
