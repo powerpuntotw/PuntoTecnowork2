@@ -46,17 +46,37 @@ experimental: { clientRouterFilter: false }
 **Causa:** El uso de hooks como `useRouter()` y `.onAuthStateChanged()` combinados con banderas de estado tipo `initializedRef` o `mountRef` que desincronizan el Single Truth (La verdad absoluta) de Supabase con el State de React. Las carreras de renderización en Next.js (SSR vs CSR) causan que el listener no emita eventos o asuma que el usuario no existe.
 
 **Solución Obligatoria para la Nueva App:**
-1. Separar el cliente de Supabase en un patrón **Singleton** puro fuera del componente de React de manera que no se reinstancie entre navegaciones:
+1. Separar el cliente de Supabase en un patrón **Singleton** puro fuera del componente de React de manera que no se reinstancie entre navegaciones.
+2. Simplificar radicalmente `AuthContext`. Depender únicamente de `supabase.auth.getSession()` inicial, para luego registrar el `.onAuthStateChange()` eliminando referencias externas frágiles. Además, remover el uso de `setLoading(true)` durante eventos secundarios de sesión en background (ej. `SIGNED_IN` durante un refresco de token) para no atrapar la UI de manera inesperada.
+
+---
+
+## 2.5. El Spinner Infinito (Bug de WebLocks en @supabase/auth-js)
+**Síntoma:** A pesar de tener un AuthContext perfecto, de forma aleatoria (especialmente al presionar F5 múltiples veces o salir de una pestaña suspendida), los Dashboards se quedan colgados en "Verificando acceso..." de manera permanente. Ninguna petición de red sale hacia Supabase (ni `getSession` ni queries a la DB).
+**Causa (Investigación Compleja):** Es un bug grave y reportado en la librería oficial `@supabase/auth-js`. Supabase utiliza la API nativa del navegador `navigator.locks` para coordinar el refresco de tokens entre múltiples pestañas. Under React StrictMode (o Fast Refresh en desarrollo), el componente se desmonta tan rápido que el "WebLock" adquirido nunca se libera (queda "huérfano"). La próxima vez que Supabase intenta validar la sesión o hacer una query, se queda esperando un candado que jamás se soltará, produciendo un "Deadlock" (abrazo mortal) permanente y silencioso en el navegador entero.
+
+**Solución Obligatoria:**
+Inyectar un *override* (puenteo) directo en las opciones de configuración al momento de crear el cliente web de Supabase para desactivar y puentear el sistema de WebLocks problemático, devolviendo la función inmediatamente:
 ```javascript
-// lib/supabase/client.js
-import { createBrowserClient } from '@supabase/ssr'
-let supabaseClient = null;
+// src/lib/supabase/client.js
+import { createBrowserClient } from '@supabase/ssr';
+
 export function createClient() {
-  if (!supabaseClient) supabaseClient = createBrowserClient(URL, ANON_KEY);
-  return supabaseClient;
+    return createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        {
+            auth: {
+                // BYPASS SALVA-VIDAS: Evita el Deadlock de navigator.locks en React StrictMode/Hot-Reload
+                lock: (name, acquireTimeout, fn) => {
+                    return fn();
+                }
+            }
+        }
+    );
 }
 ```
-2. Simplificar radicalmente `AuthContext`. Depender únicamente de `supabase.auth.getSession()` inicial, para luego registrar el `.onAuthStateChanged()` eliminando referencias externas frágiles (`useEffect` dependencies limpias).
+Adicionalmente, el `AuthContext` debe tener un `setTimeout(...)` de seguridad de aprox 10 segundos que obligue a apagar el estado de carga (`setLoading(false)`) si las promesas de Supabase quedan colgadas, para que el usuario al menos vea un error o sea redirigido en vez de mirar un spinner infinito.
 
 ---
 
