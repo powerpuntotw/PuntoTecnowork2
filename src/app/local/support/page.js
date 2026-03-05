@@ -43,7 +43,9 @@ export default function LocalSupportPage() {
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [form, setForm] = useState({ category: SYSTEM_CATEGORIES[0], description: '' });
+    const [form, setForm] = useState({ category: SYSTEM_CATEGORIES[0], description: '', target_user_id: '' });
+    const [localClients, setLocalClients] = useState([]);
+    const [destinationType, setDestinationType] = useState('admin');
 
     const [activeTicket, setActiveTicket] = useState(null);
     const [messages, setMessages] = useState([]);
@@ -65,6 +67,28 @@ export default function LocalSupportPage() {
 
     useEffect(() => {
         fetchTickets();
+    }, [profile?.location_id]);
+
+    useEffect(() => {
+        if (!profile?.location_id) return;
+        const fetchLocalClients = async () => {
+            const { data } = await supabase
+                .from('print_orders')
+                .select('customer_id, profiles!print_orders_customer_id_fkey(id, full_name, email)')
+                .eq('location_id', profile.location_id);
+            if (data) {
+                const uniqueClients = [];
+                const seen = new Set();
+                data.forEach(order => {
+                    if (order.profiles && !seen.has(order.profiles.id)) {
+                        seen.add(order.profiles.id);
+                        uniqueClients.push(order.profiles);
+                    }
+                });
+                setLocalClients(uniqueClients);
+            }
+        };
+        fetchLocalClients();
     }, [profile?.location_id]);
 
     useEffect(() => {
@@ -99,10 +123,19 @@ export default function LocalSupportPage() {
         if (!form.description.trim()) return showToast('Agregá una descripción', 'error');
         setSubmitting(true);
         try {
-            const { error } = await supabase.from('support_tickets').insert({ location_id: profile.location_id, creator_id: profile.id, ticket_type: 'system_report', category: form.category, description: form.description.trim() });
+            const ticketData = {
+                location_id: profile.location_id,
+                creator_id: profile.id,
+                ticket_type: destinationType === 'admin' ? 'system_report' : 'local_to_client',
+                category: form.category,
+                description: form.description.trim(),
+                target_user_id: destinationType === 'client' ? form.target_user_id : null
+            };
+            const { error } = await supabase.from('support_tickets').insert(ticketData);
             if (error) throw error;
             showToast('Reporte enviado', 'success');
-            setForm({ category: SYSTEM_CATEGORIES[0], description: '' });
+            setForm({ category: SYSTEM_CATEGORIES[0], description: '', target_user_id: '' });
+            setDestinationType('admin');
             setShowForm(false);
             fetchTickets();
         } finally {
@@ -226,6 +259,29 @@ export default function LocalSupportPage() {
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-8">
                             <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Destinatario</label>
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={() => setDestinationType('admin')}
+                                        className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${destinationType === 'admin' ? 'bg-gray-dark text-white shadow-lg' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                                        Administrador
+                                    </button>
+                                    <button type="button" onClick={() => setDestinationType('client')}
+                                        className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${destinationType === 'client' ? 'bg-primary text-white shadow-lg' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                                        Cliente
+                                    </button>
+                                </div>
+                            </div>
+                            {destinationType === 'client' && (
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Seleccionar Cliente</label>
+                                    <select value={form.target_user_id} onChange={e => setForm({ ...form, target_user_id: e.target.value })}
+                                        className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 font-bold text-sm shadow-inner outline-none focus:ring-2 focus:ring-primary/20">
+                                        <option value="">Elegir cliente...</option>
+                                        {localClients.map(c => <option key={c.id} value={c.id}>{c.full_name} ({c.email})</option>)}
+                                    </select>
+                                </div>
+                            )}
+                            <div className="space-y-2">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Categoría</label>
                                 <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
                                     className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 font-bold text-sm shadow-inner outline-none focus:ring-2 focus:ring-primary/20">
@@ -238,7 +294,7 @@ export default function LocalSupportPage() {
                                     className="w-full bg-gray-50 border-none rounded-[32px] px-8 py-6 font-medium text-sm min-h-[150px] outline-none shadow-inner focus:ring-2 focus:ring-primary/20"
                                     placeholder="Describe el problema para que el administrador pueda ayudarte..." />
                             </div>
-                            <button type="submit" disabled={submitting} className="w-full bg-primary text-white py-5 rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-brand hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            <button type="submit" disabled={submitting || !form.description.trim() || (destinationType === 'client' && !form.target_user_id)} className="w-full bg-primary text-white py-5 rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-brand hover:scale-[1.02] active:scale-[0.98] transition-all">
                                 {submitting ? 'Procesando...' : 'Emitir Reporte'}
                             </button>
                         </form>

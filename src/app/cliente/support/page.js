@@ -60,7 +60,7 @@ export default function SupportPage() {
     const fetchTickets = async () => {
         if (!user) return;
         setLoading(true);
-        const { data } = await supabase.from('support_tickets').select('*, location:printing_locations(name)').eq('creator_id', user.id).order('created_at', { ascending: false });
+        const { data } = await supabase.from('support_tickets').select('*, location:printing_locations(name), creator:profiles(full_name, user_type)').or(`creator_id.eq.${user.id},target_user_id.eq.${user.id}`).order('created_at', { ascending: false });
         setTickets(data || []);
         setLoading(false);
     };
@@ -254,6 +254,7 @@ export default function SupportPage() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
                                             <h3 className="font-bold text-gray-dark truncate group-hover:text-primary transition-colors">{ticket.category}</h3>
+                                            {ticket.creator_id !== user?.id && <span className="text-[9px] font-bold text-secondary bg-secondary/10 px-2 py-0.5 rounded-full">Mensaje del local</span>}
                                             {ticket.location?.name && <span className="text-[9px] font-bold text-gray-400">→ {ticket.location.name}</span>}
                                             <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter shrink-0">{formatDistanceToNow(new Date(ticket.created_at), { locale: es, addSuffix: true })}</span>
                                         </div>
