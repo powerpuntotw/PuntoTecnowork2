@@ -4,6 +4,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { BrandingProvider } from '@/contexts/BrandingContext';
 import { ToastProvider } from '@/components/Toast';
 import { GlobalErrorBoundary } from '@/components/GlobalErrorBoundary';
+import { SessionRecovery } from '@/components/SessionRecovery';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -29,6 +30,7 @@ export default function RootLayout({ children }) {
             <body className={`${inter.className} min-h-screen bg-white dark:bg-gray-dark text-gray-dark dark:text-gray-100 transition-colors duration-300 font-sans`}>
                 <GlobalErrorBoundary>
                     <AuthProvider>
+                        <SessionRecovery />
                         <BrandingProvider>
                             <ToastProvider>
                                 {children}
