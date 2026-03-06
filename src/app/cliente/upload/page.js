@@ -147,18 +147,26 @@ export default function UploadFilesPage() {
             const total = calculateTotal();
             const pts = calculatePoints();
 
-            const { data: order, error } = await supabase.from('print_orders').insert({
-                customer_id: user.id,
-                location_id: selectedLocation,
-                file_urls: uploadedFiles,
-                specifications: { size: selectedSize, quality, copies, color: quality === 'premium' && !!selectedLocObj?.has_color_printing },
-                total_amount: total,
-                points_earned: pts,
-                status: 'pendiente',
-                notes: notes.trim() || null
-            }).select().single();
+            // Create order via server-side API route (client-side SDK also hangs on mobile)
+            const orderResponse = await fetch('/api/create-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    file_urls: uploadedFiles,
+                    location_id: selectedLocation,
+                    specifications: { size: selectedSize, quality, copies, color: quality === 'premium' && !!selectedLocObj?.has_color_printing },
+                    total_amount: total,
+                    points_earned: pts,
+                    notes: notes.trim() || null,
+                }),
+            });
 
-            if (error) throw error;
+            if (!orderResponse.ok) {
+                const errorData = await orderResponse.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Error al crear la orden');
+            }
+
+            const { order } = await orderResponse.json();
 
             confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#EB1C24', '#FFC905', '#A4CC39', '#0093D8'] });
             setOrderResult(order);
