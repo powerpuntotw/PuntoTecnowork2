@@ -111,45 +111,35 @@ export default function UploadFilesPage() {
 
             const uploadedFiles = [];
 
+            // Upload each file via server-side API route.
+            // Sending FormData works reliably on all mobile browsers,
+            // unlike client-side arrayBuffer() + Supabase SDK which can hang.
             for (let i = 0; i < files.length; i++) {
                 const { file } = files[i];
                 const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
                 const filePath = `${user.id}/${tempOrderId}/${i}_${safeName}`;
-
-                // Normalize MIME type: some mobile browsers report image/jpg instead of image/jpeg
                 const contentType = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
 
-                // Read file as ArrayBuffer with its own timeout
-                // file.arrayBuffer() can hang silently on some mobile browsers
-                let fileData;
-                try {
-                    const readPromise = file.arrayBuffer();
-                    const readTimeout = new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error(`Timeout leyendo archivo ${i + 1}: ${file.name}`)), 15000)
-                    );
-                    fileData = await Promise.race([readPromise, readTimeout]);
-                } catch (readErr) {
-                    // Fallback: try using FileReader if arrayBuffer() hangs
-                    fileData = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        const timer = setTimeout(() => reject(new Error(`Timeout leyendo archivo ${i + 1}`)), 15000);
-                        reader.onload = () => { clearTimeout(timer); resolve(reader.result); };
-                        reader.onerror = () => { clearTimeout(timer); reject(new Error(`Error leyendo ${file.name}`)); };
-                        reader.readAsArrayBuffer(file);
-                    });
-                }
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('filePath', filePath);
+                formData.append('contentType', contentType);
 
-                // Upload with timeout
-                const uploadPromise = supabase.storage.from('print-files').upload(filePath, fileData, {
-                    contentType,
-                    upsert: false
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+                const response = await fetch('/api/upload-file', {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal,
                 });
-                const uploadTimeout = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error(`Timeout subiendo archivo ${i + 1}`)), 60000)
-                );
 
-                const { error } = await Promise.race([uploadPromise, uploadTimeout]);
-                if (error) throw error;
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `Error subiendo archivo ${i + 1}`);
+                }
 
                 uploadedFiles.push(filePath);
             }
@@ -175,7 +165,10 @@ export default function UploadFilesPage() {
             setStep(5);
         } catch (err) {
             console.error("Error en handleSubmit:", err);
-            showToast('Error al crear la orden: ' + (err.message || 'Error de red. Intentá de nuevo.'), 'error');
+            const message = err.name === 'AbortError'
+                ? 'La subida tardó demasiado. Verificá tu conexión e intentá de nuevo.'
+                : (err.message || 'Error de red. Intentá de nuevo.');
+            showToast('Error al crear la orden: ' + message, 'error');
         } finally {
             setIsSubmitting(false);
         }
