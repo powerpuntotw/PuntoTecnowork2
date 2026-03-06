@@ -105,31 +105,50 @@ export default function UploadFilesPage() {
         if (!user) return;
         setIsSubmitting(true);
         try {
-            // Fallback for older mobile browsers that lack crypto.randomUUID in some contexts
-            const tempOrderId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+            const tempOrderId = typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
             const uploadedFiles = [];
 
-            // Upload sequentially to avoid choking mobile network stacks and memory (silent hangs)
             for (let i = 0; i < files.length; i++) {
                 const { file } = files[i];
-                // Sanitize filename and prepend index to avoid iOS camera multi-upload collisions (image.jpg)
                 const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
                 const filePath = `${user.id}/${tempOrderId}/${i}_${safeName}`;
 
-                // CRITICAL FIX: Convert to ArrayBuffer to bypass Mobile Safari / WebKit fetch stream hangs
-                const arrayBuffer = await file.arrayBuffer();
+                // Normalize MIME type: some mobile browsers report image/jpg instead of image/jpeg
+                const contentType = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
 
-                // Add a simple timeout wrapper to prevent indefinite hanging on dropped mobile connections
-                const uploadPromise = supabase.storage.from('print-files').upload(filePath, arrayBuffer, {
-                    contentType: file.type,
+                // Read file as ArrayBuffer with its own timeout
+                // file.arrayBuffer() can hang silently on some mobile browsers
+                let fileData;
+                try {
+                    const readPromise = file.arrayBuffer();
+                    const readTimeout = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error(`Timeout leyendo archivo ${i + 1}: ${file.name}`)), 15000)
+                    );
+                    fileData = await Promise.race([readPromise, readTimeout]);
+                } catch (readErr) {
+                    // Fallback: try using FileReader if arrayBuffer() hangs
+                    fileData = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        const timer = setTimeout(() => reject(new Error(`Timeout leyendo archivo ${i + 1}`)), 15000);
+                        reader.onload = () => { clearTimeout(timer); resolve(reader.result); };
+                        reader.onerror = () => { clearTimeout(timer); reject(new Error(`Error leyendo ${file.name}`)); };
+                        reader.readAsArrayBuffer(file);
+                    });
+                }
+
+                // Upload with timeout
+                const uploadPromise = supabase.storage.from('print-files').upload(filePath, fileData, {
+                    contentType,
                     upsert: false
                 });
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error(`Timeout al subir el archivo ${i + 1}`)), 45000)
+                const uploadTimeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Timeout subiendo archivo ${i + 1}`)), 60000)
                 );
 
-                const { error } = await Promise.race([uploadPromise, timeoutPromise]);
+                const { error } = await Promise.race([uploadPromise, uploadTimeout]);
                 if (error) throw error;
 
                 uploadedFiles.push(filePath);
@@ -155,8 +174,8 @@ export default function UploadFilesPage() {
             setOrderResult(order);
             setStep(5);
         } catch (err) {
-            console.error("Error en handleSubmit celular:", err);
-            showToast('Error al crear la orden: ' + (err.message || 'Error de red'), 'error');
+            console.error("Error en handleSubmit:", err);
+            showToast('Error al crear la orden: ' + (err.message || 'Error de red. Intentá de nuevo.'), 'error');
         } finally {
             setIsSubmitting(false);
         }
